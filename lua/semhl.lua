@@ -53,7 +53,6 @@ local function recursive_child_iter(node, table_to_insert, desired_types)
   end
 end
 
-
 local function get_nodes_in_array(buffer) --{{{
   local ts = vim.treesitter
 
@@ -146,7 +145,7 @@ local function _autoload(ev)
   })
 
   if autocommands == nil or next(autocommands) == nil then
-    vim.api.nvim_create_autocmd({ "InsertLeave", "TextChanged", "BufWritePost", "BufEnter", "VimResized" },
+    vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP", "TextChanged", "BufEnter", "WinScrolled" },
       { buffer = ev.buf, callback = _autoload, group = M._semhl_augup })
   end
 

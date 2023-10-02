@@ -101,7 +101,7 @@ local function _load(buffer)
   end
 
   local children = {}
-  recursive_child_iter(root, children, { "identifier" })
+  recursive_child_iter(root, children, { "identifier", "type_identifier", "field_identifier" })
 
 
   for i, nn in ipairs(children) do

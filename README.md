@@ -1,6 +1,6 @@
 # semhl.nvim
 
-This is a re-impementation of <a href="https://github.com/jaxbot/semantic-highlight.vim">semantic-highlight.vim</a> in lua targeting neovim.
+This is a re-impementation of <a href="https://github.com/jaxbot/semantic-highlight.vim">semantic-highlight.vim</a> in lua targeting neovim, with some additional new features.
 
 Where every variable is a different color, an idea popularized by <a href="https://medium.com/@evnbr/coding-in-color-3a6db2743a1e">Evan Brooks'</a> blog post.
 

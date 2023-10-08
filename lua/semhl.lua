@@ -1,12 +1,7 @@
 local M = {}
 
-local test = { "#f0f000", "#00f000", "#f0f0f0", "#f00000" }
-
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
-
-local GOLDEN_RATIO_CONJUGATE = 0.618033988749895
-print(GOLDEN_RATIO_CONJUGATE)
 
 local function create_highlight(ns, rgb_hex)
   rgb_hex = rgb_hex:lower()

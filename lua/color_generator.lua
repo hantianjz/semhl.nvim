@@ -39,7 +39,7 @@ M.current_h = 0
 
 M.color_generate = function()
   M.current_h = (M.current_h + GOLDEN_RATIO_CONJUGATE) % 1
-  return hsv_to_rgb(M.current_h, 0.9, 0.97)
+  return hsv_to_rgb(M.current_h, 0.90, 0.99)
 end
 
 return M

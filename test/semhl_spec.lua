@@ -1,5 +1,13 @@
 describe("semhl", function()
   it("create highlight", function()
     require("semhl")
+    require("color_generator")
+  end)
+
+  it("Generate unique colors", function()
+    local C = require("color_generator")
+    local c1 = C.color_generate()
+    local c2 = C.color_generate()
+    assert.falsy(c1 == c2)
   end)
 end)

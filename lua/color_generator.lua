@@ -2,6 +2,8 @@ local M = {}
 
 local GOLDEN_RATIO_CONJUGATE = 0.618033988749895
 
+local test = { "#f0f000", "#00f000", "#f0f0f0", "#f00000" }
+
 local function hsv_to_rgb(h, s, v)
   local h_i = math.floor(h * 6)
   local f = h * 6 - h_i

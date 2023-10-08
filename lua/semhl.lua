@@ -1,17 +1,25 @@
 local M = {}
 
+local test = { "#f0f000", "#00f000", "#f0f0f0", "#f00000" }
+
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
 
+local GOLDEN_RATIO_CONJUGATE = 0.618033988749895
+print(GOLDEN_RATIO_CONJUGATE)
 
 local function create_highlight(ns, rgb_hex)
   rgb_hex = rgb_hex:lower()
   local cache_key = table.concat({ "sfg", rgb_hex }, "_")
   local highlight_name = M._HIGHLIGHT_CACHE[cache_key]
 
+
   -- Look up in our cache.
   if highlight_name then
-    return highlight_name
+    local hl_id = vim.api.nvim_get_hl_id_by_name(highlight_name)
+    if hl_id then
+      return highlight_name
+    end
   end
 
   -- Create the highlight
@@ -76,12 +84,12 @@ local function get_nodes_in_array(buffer) --{{{
 end --}}}
 
 local function _load(buffer)
-  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
-
   local root = get_nodes_in_array(buffer)
   if not root then
     return
   end
+
+  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
 
   local children = {}
   recursive_child_iter(root, children, { "identifier", "type_identifier", "field_identifier" })
@@ -108,7 +116,6 @@ local function _load(buffer)
         end
       end
 
-
       if existing_extmark == nil or next(existing_extmark) == nil then
         vim.api.nvim_buf_add_highlight(buffer, M._ns, hlname, srow, scol, ecol)
       end
@@ -118,7 +125,8 @@ local function _load(buffer)
     end
   end
 
-  vim.api.nvim_set_hl_ns_fast(M._ns)
+  -- Activate the highlight
+  vim.api.nvim_set_hl_ns(M._ns)
 end
 
 local function _autoload(ev)
@@ -130,12 +138,22 @@ local function _autoload(ev)
 
   if autocommands == nil or next(autocommands) == nil then
     vim.api.nvim_create_autocmd(
-      { "BufLoad", "BufUnload", "BufDelete", "TextChanged", "BufWritePost", "BufEnter", "VimResized", "TextChangedI",
-        "TextChangedP", "WinScrolled" },
+      { "BufEnter", "TextChanged", "TextChangedI", "TextChangedP", "WinScrolled" },
       { buffer = ev.buf, callback = _autoload, group = M._semhl_augup })
   end
 
   _load(ev.buf)
+
+  -- TODO: Figure out how to add highlight incrementally
+  -- vim.api.nvim_buf_attach(ev.buf, false, {
+  --   on_lines = function(event_type, buf, changed_tick, firstline, lastline, new_lastline)
+  --     vim.schedule(function()
+  --       print(event_type, buf, changed_tick, firstline, lastline, new_lastline)
+  --     end)
+  --   end,
+  --   on_detach = function()
+  --   end,
+  -- })
 end
 
 M.setup = function(filetypes)

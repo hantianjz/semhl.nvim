@@ -1,6 +1,12 @@
 local M = {}
 
-local GOLDEN_RATIO_CONJUGATE = 0.618033988749895
+M._saturate = 0.90
+M._value = 0.99
+
+-- Limit values for saturate and value levels
+-- For dark background
+local _SATURATE_FLOOR = 0.80
+local _VALUE_FLOOR = 0.80
 
 local function hsv_to_rgb(h, s, v)
   local h_i = math.floor(h * 6)
@@ -37,9 +43,34 @@ end
 
 M.current_h = 0
 
-M.color_generate = function()
-  M.current_h = (M.current_h + GOLDEN_RATIO_CONJUGATE) % 1
-  return hsv_to_rgb(M.current_h, 0.90, 0.99)
+M.color_generate = function(hue, sat, val)
+  if hue >= 1 then
+    hue = 0.8
+  end
+
+  if sat == nil then
+    sat = M._saturate
+  else
+    sat = _SATURATE_FLOOR + (sat * (1 - _SATURATE_FLOOR))
+  end
+
+  if val == nil then
+    val = M._value
+  else
+    val = _VALUE_FLOOR + (val * (1 - _VALUE_FLOOR))
+  end
+  return hsv_to_rgb(hue, sat, val)
+end
+
+M.is_color_collision = function(rbg_a, rbg_b)
+  -- TODO: check if 2 colors are too close and should be considered collision
+  return false
+end
+
+
+M.setup = function(saturate, value)
+  M._saturate = saturate
+  M._value = value
 end
 
 return M

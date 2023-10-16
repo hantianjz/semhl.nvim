@@ -95,7 +95,8 @@ local function _load(buffer)
     if node_text then
       local hlname = M._WORD_CACHE[node_text]
       if hlname == nil then
-        local c = require("color_generator").color_generate()
+        local hsv = require("hash_string").hash_hsv(node_text)
+        local c = require("color_generator").color_generate(hsv[1], hsv[2], hsv[3])
         hlname = create_highlight(M._ns, string.sub(c, 2))
       end
 
@@ -133,7 +134,7 @@ local function _autoload(ev)
 
   if autocommands == nil or next(autocommands) == nil then
     vim.api.nvim_create_autocmd(
-      { "BufEnter", "TextChanged", "TextChangedI", "TextChangedP", "WinScrolled" },
+      { "BufEnter", "TextChanged", "TextChangedP", "WinScrolled", "CursorHoldI" },
       { buffer = ev.buf, callback = _autoload, group = M._semhl_augup })
   end
 

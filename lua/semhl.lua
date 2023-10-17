@@ -45,6 +45,7 @@ local function get_nodes_in_array(buffer) --{{{
 
   -- Yanked from https://github.com/nvim-treesitter/nvim-treesitter/blob/32e364ea3c99aafcce2ce735fe091618f623d889/lua/nvim-treesitter/parsers.lua#L4-L21
   local filetype_to_parsername = {
+    proto = "c",
     arduino = "cpp",
     javascriptreact = "javascript",
     ecma = "javascript",

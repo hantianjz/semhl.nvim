@@ -90,7 +90,6 @@ local function _load(buffer)
   local children = {}
   recursive_child_iter(root, children, { "identifier", "type_identifier", "field_identifier" })
 
-
   for _, nn in ipairs(children) do
     local node_text = vim.treesitter.get_node_text(nn, buffer)
     if node_text then
@@ -135,7 +134,7 @@ local function _autoload(ev)
 
   if autocommands == nil or next(autocommands) == nil then
     vim.api.nvim_create_autocmd(
-      { "BufEnter", "TextChanged", "TextChangedP", "WinScrolled" },
+      { "BufEnter", "TextChangedI", "TextChanged", "TextChangedP", "WinScrolled", "ModeChanged" },
       { buffer = ev.buf, callback = _autoload, group = M._semhl_augup })
   end
 

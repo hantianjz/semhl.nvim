@@ -7,7 +7,7 @@ M._value = 0.99
 -- For dark background
 local _SATURATE_FLOOR = 0.75
 local _VALUE_FLOOR = 0.75
-local _HUE_CEILING = 0.85
+local _HUE_CEILING = 0.80
 
 local function hsv_to_rgb(h, s, v)
   local h_i = math.floor(h * 6)

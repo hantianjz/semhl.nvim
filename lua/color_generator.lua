@@ -5,8 +5,9 @@ M._value = 0.99
 
 -- Limit values for saturate and value levels
 -- For dark background
-local _SATURATE_FLOOR = 0.80
-local _VALUE_FLOOR = 0.80
+local _SATURATE_FLOOR = 0.75
+local _VALUE_FLOOR = 0.75
+local _HUE_CEILING = 0.85
 
 local function hsv_to_rgb(h, s, v)
   local h_i = math.floor(h * 6)
@@ -59,6 +60,9 @@ M.color_generate = function(hue, sat, val)
   else
     val = _VALUE_FLOOR + (val * (1 - _VALUE_FLOOR))
   end
+
+  hue = _HUE_CEILING * hue
+
   return hsv_to_rgb(hue, sat, val)
 end
 

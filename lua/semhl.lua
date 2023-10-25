@@ -134,7 +134,7 @@ local function _autoload(ev)
 
   if autocommands == nil or next(autocommands) == nil then
     vim.api.nvim_create_autocmd(
-      { "BufEnter", "TextChangedI", "TextChanged", "TextChangedP", "WinScrolled", "ModeChanged" },
+      { "BufEnter", "TextChanged", "TextChangedP", "WinScrolled", "ModeChanged" },
       { buffer = ev.buf, callback = _autoload, group = M._semhl_augup })
   end
 

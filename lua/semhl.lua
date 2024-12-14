@@ -1,7 +1,23 @@
 local M = {}
 
+local PLUGIN_NAME = "semhl"
+
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
+
+function ts_diff(start_ts, end_ts)
+  local sec = end_ts.sec - start_ts.sec
+  local nsec = end_ts.nsec - start_ts.nsec
+  if nsec < 0 then
+    nsec = 1000000000 + nsec
+    sec = sec - 1
+  end
+  pad = string.rep("0", 9 - string.len("" .. nsec))
+
+  return sec .. "." .. pad .. nsec
+end
+
+local LOGGER = require("plenary.log").new({ plugin = PLUGIN_NAME, level = "debug", outfile="semhl.log", use_console = "sync" })
 
 local function create_highlight(ns, rgb_hex)
   rgb_hex = rgb_hex:lower()
@@ -79,7 +95,39 @@ local function get_nodes_in_array(buffer) --{{{
   return trees[1]:root()
 end --}}}
 
-local function _load(buffer)
+local function _on_text_change(buffer)
+  LOGGER.debug("func: _on_text_change: " .. buffer);
+end
+
+local function _on_buffer_hide(buffer)
+  LOGGER.debug("func: _on_buffer_hide: " .. buffer);
+end
+
+local function _new_on_buffer_enter(buffer)
+  LOGGER.info("Buffer enter")
+  local parser = vim.treesitter.get_parser(buffer, nil)
+
+  local function on_tree_change(range, tree)
+    LOGGER.info("on_tree_change")
+    LOGGER.info(range)
+
+    local children = {}
+    recursive_child_iter(tree:root(), children, { "identifier", "type_identifier", "field_identifier" })
+
+    for _, nn in ipairs(children) do
+      local node_text = vim.treesitter.get_node_text(nn, buffer)
+    end
+  end
+
+  parser:register_cbs({ on_changedtree = on_tree_change }, true)
+end
+
+local function _on_buffer_enter(buffer)
+  LOGGER.debug("func: _on_buffer_enter: " .. buffer);
+  -- require'plenary.profile'.start("semhl_profile.log")
+  -- require'plenary.profile'.stop()
+
+  local load_start_ts = vim.uv.clock_gettime("realtime")
   local root = get_nodes_in_array(buffer)
   if not root then
     return
@@ -95,7 +143,9 @@ local function _load(buffer)
     if node_text then
       local hlname = M._WORD_CACHE[node_text]
       if hlname == nil then
-        local hsv = require("hash_string").hash_hsv(node_text)
+        local random_range = 1000;
+        local hsv = { math.random(0, random_range) / random_range, math.random(0, random_range) / random_range, math
+        .random(0, random_range) / random_range }
         local c = require("color_generator").color_generate(hsv[1], hsv[2], hsv[3])
         hlname = create_highlight(M._ns, string.sub(c, 2))
       end
@@ -123,9 +173,13 @@ local function _load(buffer)
 
   -- Activate the highlight
   vim.api.nvim_set_hl_ns(M._ns)
+
+  local load_end_ts = vim.uv.clock_gettime("realtime")
+  LOGGER.debug("load time: ", ts_diff(load_start_ts, load_end_ts))
 end
 
 local function _autoload(ev)
+  LOGGER.debug("func: _autoload");
   local autocommands = vim.api.nvim_get_autocmds({
     group = M._semhl_augup,
     buffer = ev.buf,
@@ -133,12 +187,17 @@ local function _autoload(ev)
   })
 
   if autocommands == nil or next(autocommands) == nil then
+    LOGGER.debug("!!!!Create autocommands for " .. ev.buf .. " !!!!")
     vim.api.nvim_create_autocmd(
-      { "BufEnter", "TextChanged", "TextChangedP", "WinScrolled", "ModeChanged" },
-      { buffer = ev.buf, callback = _autoload, group = M._semhl_augup })
+      { "BufEnter" },
+      { buffer = ev.buf, callback = function(env) _new_on_buffer_enter(env.buf) end, group = M._semhl_augup })
+    -- vim.api.nvim_create_autocmd(
+    --   { "BufHidden" },
+    --   { buffer = ev.buf, callback = function(env) _on_buffer_hide(env.buf) end, group = M._semhl_augup })
+    -- vim.api.nvim_create_autocmd(
+    --   { "TextChanged", "TextChangedP" },
+    --   { buffer = ev.buf, callback = function(env) _on_text_change(env.buf) end, group = M._semhl_augup })
   end
-
-  _load(ev.buf)
 
   -- TODO: Figure out how to add highlight incrementally
   -- vim.api.nvim_buf_attach(ev.buf, false, {
@@ -153,6 +212,7 @@ local function _autoload(ev)
 end
 
 M.setup = function(filetypes)
+  LOGGER.debug("func: setup");
   if M._init then
     return
   end
@@ -160,8 +220,8 @@ M.setup = function(filetypes)
   vim.api.nvim_create_user_command("SemhlLoad", M.load, {})
   vim.api.nvim_create_user_command("SemhlUnload", M.unload, {})
 
-  M._ns = vim.api.nvim_create_namespace("semhl")
-  M._semhl_augup = vim.api.nvim_create_augroup("semhl", { clear = true })
+  M._ns = vim.api.nvim_create_namespace(PLUGIN_NAME)
+  M._semhl_augup = vim.api.nvim_create_augroup(PLUGIN_NAME, { clear = true })
 
   vim.api.nvim_create_autocmd({ "FileType" },
     { pattern = filetypes, callback = _autoload, group = M._semhl_augup })
@@ -169,11 +229,13 @@ M.setup = function(filetypes)
 end
 
 M.load = function()
+  LOGGER.debug("func: load");
   local buffer = vim.api.nvim_get_current_buf()
   _autoload({ buf = buffer })
 end
 
 M.unload = function()
+  LOGGER.debug("func: unload");
   local buffer = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
 

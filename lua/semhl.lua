@@ -1,26 +1,27 @@
+---@diagnostic disable: undefined-field
 local M = {}
 
 local PLUGIN_NAME = "semhl"
 
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
+M._LOG_LEVEL = "fatal"
 
-function ts_diff(start_ts, end_ts)
+local function ts_diff(start_ts, end_ts)
   local sec = end_ts.sec - start_ts.sec
   local nsec = end_ts.nsec - start_ts.nsec
   if nsec < 0 then
     nsec = 1000000000 + nsec
     sec = sec - 1
   end
-  pad = string.rep("0", 9 - string.len("" .. nsec))
+  local pad = string.rep("0", 9 - string.len("" .. nsec))
 
   return sec .. "." .. pad .. nsec
 end
 
 local LOGGER = require("plenary.log").new({
   plugin = PLUGIN_NAME,
-  level = "debug",
-  outfile = "semhl.log",
+  level = M._LOG_LEVEL,
 })
 
 local function create_highlight(ns, rgb_hex)
@@ -46,9 +47,13 @@ end
 local function highlight_node(buffer, node_text, srow, scol, erow, ecol, create_new)
   local hlname = M._WORD_CACHE[node_text]
 
-  -- if not create_new then
-  --   LOGGER.info("processing: " .. node_text .. "[" .. srow .. "," .. erow .. "] ")
-  -- end
+  LOGGER.debug("Processing: " .. node_text .. " at " .. srow)
+
+  local existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, M._ns, { srow, scol }, { erow, ecol }, {})
+  for _, mark in pairs(existing_extmark) do
+    local id = unpack(mark)
+    vim.api.nvim_buf_del_extmark(1, 2, id)
+  end
 
   -- Only create new highlight if create_new is true
   if hlname == nil and create_new then
@@ -60,55 +65,78 @@ local function highlight_node(buffer, node_text, srow, scol, erow, ecol, create_
   end
 
   if hlname then
-    -- Find NS for diag and make sure there isn't extmark exist for the same range already
-    -- local diag_idx = next(vim.diagnostic.get_namespaces())
-    -- local existing_extmark = nil
-    -- if diag_idx then
-    --   local diag_ns = vim.diagnostic.get_namespaces()[diag_idx].user_data.underline_ns
-    --   if diag_ns then
-    --     existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, diag_ns, { srow, scol }, { erow, ecol }, {})
-    --   end
-    -- end
-    local existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, M._ns, { srow, scol }, { erow, ecol }, {})
+    local ext_id = vim.api.nvim_buf_set_extmark(buffer, M._ns, srow, scol,
+      {
+        end_row = erow,
+        end_col = ecol,
+        hl_group = hlname,
+        end_right_gravity = true,
+        right_gravity = true,
+        invalidate = true,
+        undo_restore = false,
+      })
 
-    if existing_extmark == nil or next(existing_extmark) == nil then
-      if not create_new then
-        LOGGER.info("ADDING: " ..
-        buffer .. " - " .. node_text .. "[" .. srow .. "," .. scol .. "," .. ecol .. "] " .. hlname)
-      end
-      vim.api.nvim_buf_set_extmark(buffer, M._ns, srow, scol, { end_col = ecol, hl_group = hlname })
-    end
+    LOGGER.debug("ADDED: " .. ext_id .. " : " ..
+      buffer .. " - " .. node_text .. "[" .. srow .. "," .. scol .. "," .. ecol .. "] " .. hlname)
 
     M._WORD_CACHE[node_text] = hlname
   end
 end
 
-local function process_range(start_row, end_row, parser, tree, buffer, create_new)
+local function is_node_overlap_range(node, range)
+  if range and next(range) then
+    return true
+  end
+
+  local row1, col1, row2, col2 = node:range()
+  if (row1 > range[1] and row1 < range[3]) or (row2 > range[1] and row2 < range[3]) then
+    return true
+  elseif (col1 >= range[2] and col1 <= range[4]) or (col2 >= range[2] and col2 <= range[4]) then
+    return true
+  end
+  return false
+end
+
+local function process_range(parser, tree, buffer, create_new, range)
   local query = vim.treesitter.query.parse(parser:lang(), "(identifier) @id")
-  for _, node in query:iter_captures(tree:root(), buffer, start_row, end_row) do
-    local row1, col1, row2, col2 = node:range() -- range of the capture
+  LOGGER.debug(range)
+  local erow = nil
+  range = range or {}
+  if range[3] then
+    erow = range[3] + 1
+  end
+  for _, node in query:iter_captures(tree:root(), buffer, range[1], erow) do
     local node_text = vim.treesitter.get_node_text(node, buffer)
-    highlight_node(buffer, node_text, row1, col1, row2, col2, create_new)
+    LOGGER.debug("Found: " .. node_text)
+
+    if create_new or is_node_overlap_range(node, range) then
+      local row1, col1, row2, col2 = node:range()
+      highlight_node(buffer, node_text, row1, col1, row2, col2, create_new)
+    end
   end
 end
 
-local function _new_on_buffer_enter(buffer)
-  LOGGER.info("Buffer enter")
+local function on_buffer_enter(buffer)
+  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
   local parser = vim.treesitter.get_parser(buffer, nil)
 
-  local function on_bytes(bufno, tick, srow, scol, sbyte, oerow, oecol, oebyte, nerow, necol, nebyte)
-    local tree = parser:parse()[1]
-    local start_ts = vim.uv.clock_gettime("realtime")
+  local function on_bytes(bufno, _, srow, scol, _, _, _, _, nerow, necol, _)
+    local function do_work()
+      local tree = parser:parse()[1]
+      local start_ts = vim.uv.clock_gettime("realtime")
 
-    process_range(srow, srow + oerow, parser, tree, bufno, false)
+      process_range(parser, tree, bufno, false, { srow, scol, srow + nerow, necol })
 
-    local end_ts = vim.uv.clock_gettime("realtime")
-    LOGGER.debug("Diff run took " .. ts_diff(start_ts, end_ts) .. " sec")
+      local end_ts = vim.uv.clock_gettime("realtime")
+      LOGGER.debug("Diff run took " .. ts_diff(start_ts, end_ts) .. " sec")
+    end
+
+    vim.defer_fn(do_work, 10)
   end
 
   local tree = parser:parse()[1]
   parser:register_cbs({ on_bytes = on_bytes }, true)
-  process_range(nil, nil, parser, tree, buffer, true)
+  process_range(parser, tree, buffer, true)
   vim.api.nvim_set_hl_ns(M._ns)
 end
 
@@ -121,28 +149,10 @@ local function _autoload(ev)
   })
 
   if autocommands == nil or next(autocommands) == nil then
-    LOGGER.debug("!!!!Create autocommands for " .. ev.buf .. " !!!!")
     vim.api.nvim_create_autocmd(
       { "BufEnter" },
-      { buffer = ev.buf, callback = function(env) _new_on_buffer_enter(env.buf) end, group = M._semhl_augup })
-    -- vim.api.nvim_create_autocmd(
-    --   { "BufHidden" },
-    --   { buffer = ev.buf, callback = function(env) _on_buffer_hide(env.buf) end, group = M._semhl_augup })
-    -- vim.api.nvim_create_autocmd(
-    --   { "TextChanged", "TextChangedP" },
-    --   { buffer = ev.buf, callback = function(env) _on_text_change(env.buf) end, group = M._semhl_augup })
+      { buffer = ev.buf, callback = function(env) on_buffer_enter(env.buf) end, group = M._semhl_augup })
   end
-
-  -- TODO: Figure out how to add highlight incrementally
-  -- vim.api.nvim_buf_attach(ev.buf, false, {
-  --   on_lines = function(event_type, buf, changed_tick, firstline, lastline, new_lastline)
-  --     vim.schedule(function()
-  --       print(event_type, buf, changed_tick, firstline, lastline, new_lastline)
-  --     end)
-  --   end,
-  --   on_detach = function()
-  --   end,
-  -- })
 end
 
 M.setup = function(filetypes)
@@ -165,22 +175,13 @@ end
 M.load = function()
   LOGGER.debug("func: load");
   local buffer = vim.api.nvim_get_current_buf()
-  _autoload({ buf = buffer })
+  on_buffer_enter(buffer)
 end
 
 M.unload = function()
   LOGGER.debug("func: unload");
   local buffer = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
-
-  local autocommands = vim.api.nvim_get_autocmds({
-    group = M._semhl_augup,
-    buffer = buffer
-  })
-
-  for _, cmd in pairs(autocommands) do
-    vim.api.nvim_del_autocmd(cmd.id)
-  end
 end
 
 return M

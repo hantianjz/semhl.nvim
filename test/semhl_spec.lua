@@ -1,0 +1,5 @@
+describe("semhl", function()
+  it("create highlight", function()
+    require("semhl")
+  end)
+end)

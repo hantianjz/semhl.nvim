@@ -6,6 +6,7 @@ local PLUGIN_NAME = "semhl"
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
 M._LOG_LEVEL = "fatal"
+M._DISABLE_CHECK_FUNC = nil
 
 local function ts_diff(start_ts, end_ts)
   local sec = end_ts.sec - start_ts.sec
@@ -117,6 +118,12 @@ local function process_range(parser, tree, buffer, create_new, range)
 end
 
 local function on_buffer_enter(buffer)
+  -- If disable function check returns true, bail out and do nothing for this file
+  if M._DISABLE_CHECK_FUNC() then
+    M.unload()
+    return
+  end
+
   vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
   local parser = vim.treesitter.get_parser(buffer, nil)
 
@@ -155,11 +162,14 @@ local function _autoload(ev)
   end
 end
 
-M.setup = function(filetypes)
+M.setup = function(opt)
+  opt = opt or {}
   LOGGER.debug("func: setup");
   if M._init then
     return
   end
+
+  M._DISABLE_CHECK_FUNC = opt.disable
 
   vim.api.nvim_create_user_command("SemhlLoad", M.load, {})
   vim.api.nvim_create_user_command("SemhlUnload", M.unload, {})
@@ -168,7 +178,7 @@ M.setup = function(filetypes)
   M._semhl_augup = vim.api.nvim_create_augroup(PLUGIN_NAME, { clear = true })
 
   vim.api.nvim_create_autocmd({ "FileType" },
-    { pattern = filetypes, callback = _autoload, group = M._semhl_augup })
+    { pattern = opt.filetypes, callback = _autoload, group = M._semhl_augup })
   M._init = true
 end
 

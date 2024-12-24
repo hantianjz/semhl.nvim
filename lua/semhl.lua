@@ -164,12 +164,19 @@ end
 
 M.setup = function(opt)
   opt = opt or {}
+
   LOGGER.debug("func: setup");
   if M._init then
     return
   end
 
-  M._DISABLE_CHECK_FUNC = opt.disable
+  if opt.filetypes == nil then
+    opt.filetypes = {}
+  end
+
+  M._DISABLE_CHECK_FUNC = opt.disable or function()
+    return false
+  end
 
   vim.api.nvim_create_user_command("SemhlLoad", M.load, {})
   vim.api.nvim_create_user_command("SemhlUnload", M.unload, {})

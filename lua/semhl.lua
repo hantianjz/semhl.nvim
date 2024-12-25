@@ -2,13 +2,32 @@
 local M = {}
 
 local PLUGIN_NAME = "semhl"
+local MAX_FILE_SIZE = 100 * 1024
 
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
-M._LOG_LEVEL = "fatal"
+M._LOG_LEVEL = "warn"
 M._DISABLE_CHECK_FUNC = nil
+M._MAX_FILE_SIZE = 0
 
-local function ts_diff(start_ts, end_ts)
+local LOGGER = require("plenary.log").new({
+  plugin = PLUGIN_NAME,
+  level = M._LOG_LEVEL,
+})
+
+
+local function semhl_check_file_size(buffer)
+  local buffer_name = vim.api.nvim_buf_get_name(buffer)
+  local ok, stats = pcall(vim.loop.fs_stat, buffer_name)
+  if ok and stats and stats.size > M._MAX_FILE_SIZE then
+    LOGGER.warn(string.format("File %s is %d bytes larger than MAX_FILE_SIZE of %d bytes, skipping!", buffer_name,
+      stats.size, M._MAX_FILE_SIZE))
+    return true
+  end
+  return false
+end
+
+local function semhl_ts_diff(start_ts, end_ts)
   local sec = end_ts.sec - start_ts.sec
   local nsec = end_ts.nsec - start_ts.nsec
   if nsec < 0 then
@@ -20,12 +39,7 @@ local function ts_diff(start_ts, end_ts)
   return sec .. "." .. pad .. nsec
 end
 
-local LOGGER = require("plenary.log").new({
-  plugin = PLUGIN_NAME,
-  level = M._LOG_LEVEL,
-})
-
-local function create_highlight(ns, rgb_hex)
+local function semhl_create_highlight(ns, rgb_hex)
   rgb_hex = rgb_hex:lower()
   local cache_key = table.concat({ "sfg", rgb_hex }, "_")
   local highlight_name = M._HIGHLIGHT_CACHE[cache_key]
@@ -45,7 +59,7 @@ local function create_highlight(ns, rgb_hex)
   return highlight_name
 end
 
-local function highlight_node(buffer, node_text, srow, scol, erow, ecol, create_new)
+local function semhl_highlight_node(buffer, node_text, srow, scol, erow, ecol, create_new)
   local hlname = M._WORD_CACHE[node_text]
 
   LOGGER.debug("Processing: " .. node_text .. " at " .. srow)
@@ -62,7 +76,7 @@ local function highlight_node(buffer, node_text, srow, scol, erow, ecol, create_
     local hsv = { math.random(0, random_range) / random_range, math.random(0, random_range) / random_range, math
     .random(0, random_range) / random_range }
     local c = require("color_generator").color_generate(hsv[1], hsv[2], hsv[3])
-    hlname = create_highlight(M._ns, string.sub(c, 2))
+    hlname = semhl_create_highlight(M._ns, string.sub(c, 2))
   end
 
   if hlname then
@@ -84,7 +98,7 @@ local function highlight_node(buffer, node_text, srow, scol, erow, ecol, create_
   end
 end
 
-local function is_node_overlap_range(node, range)
+local function semhl_is_node_overlap_range(node, range)
   if range and next(range) then
     return true
   end
@@ -98,7 +112,7 @@ local function is_node_overlap_range(node, range)
   return false
 end
 
-local function process_range(parser, tree, buffer, create_new, range)
+local function semhl_process_range(parser, tree, buffer, create_new, range)
   local query = vim.treesitter.query.parse(parser:lang(), "(identifier) @id")
   LOGGER.debug(range)
   local erow = nil
@@ -110,16 +124,16 @@ local function process_range(parser, tree, buffer, create_new, range)
     local node_text = vim.treesitter.get_node_text(node, buffer)
     LOGGER.debug("Found: " .. node_text)
 
-    if create_new or is_node_overlap_range(node, range) then
+    if create_new or semhl_is_node_overlap_range(node, range) then
       local row1, col1, row2, col2 = node:range()
-      highlight_node(buffer, node_text, row1, col1, row2, col2, create_new)
+      semhl_highlight_node(buffer, node_text, row1, col1, row2, col2, create_new)
     end
   end
 end
 
-local function on_buffer_enter(buffer)
+local function semhl_on_buffer_enter(buffer)
   -- If disable function check returns true, bail out and do nothing for this file
-  if M._DISABLE_CHECK_FUNC() then
+  if M._DISABLE_CHECK_FUNC(buffer) then
     M.unload()
     return
   end
@@ -127,27 +141,27 @@ local function on_buffer_enter(buffer)
   vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
   local parser = vim.treesitter.get_parser(buffer, nil)
 
-  local function on_bytes(bufno, _, srow, scol, _, _, _, _, nerow, necol, _)
-    local function do_work()
+  local function semhl_on_bytes(bufno, _, srow, scol, _, _, _, _, nerow, necol, _)
+    local function semhl_do_incremental_process()
       local tree = parser:parse()[1]
       local start_ts = vim.uv.clock_gettime("realtime")
 
-      process_range(parser, tree, bufno, false, { srow, scol, srow + nerow, necol })
+      semhl_process_range(parser, tree, bufno, false, { srow, scol, srow + nerow, necol })
 
       local end_ts = vim.uv.clock_gettime("realtime")
-      LOGGER.debug("Diff run took " .. ts_diff(start_ts, end_ts) .. " sec")
+      LOGGER.debug("Diff run took " .. semhl_ts_diff(start_ts, end_ts) .. " sec")
     end
 
-    vim.defer_fn(do_work, 10)
+    vim.defer_fn(semhl_do_incremental_process, 10)
   end
 
   local tree = parser:parse()[1]
-  parser:register_cbs({ on_bytes = on_bytes }, true)
-  process_range(parser, tree, buffer, true)
+  parser:register_cbs({ on_bytes = semhl_on_bytes }, true)
+  semhl_process_range(parser, tree, buffer, true)
   vim.api.nvim_set_hl_ns(M._ns)
 end
 
-local function _autoload(ev)
+local function semhl_autoload(ev)
   LOGGER.debug("func: _autoload");
   local autocommands = vim.api.nvim_get_autocmds({
     group = M._semhl_augup,
@@ -158,7 +172,7 @@ local function _autoload(ev)
   if autocommands == nil or next(autocommands) == nil then
     vim.api.nvim_create_autocmd(
       { "BufEnter" },
-      { buffer = ev.buf, callback = function(env) on_buffer_enter(env.buf) end, group = M._semhl_augup })
+      { buffer = ev.buf, callback = function(env) semhl_on_buffer_enter(env.buf) end, group = M._semhl_augup })
   end
 end
 
@@ -174,9 +188,8 @@ M.setup = function(opt)
     opt.filetypes = {}
   end
 
-  M._DISABLE_CHECK_FUNC = opt.disable or function()
-    return false
-  end
+  M._DISABLE_CHECK_FUNC = opt.disable or semhl_check_file_size
+  M._MAX_FILE_SIZE = opt.max_file_size or MAX_FILE_SIZE
 
   vim.api.nvim_create_user_command("SemhlLoad", M.load, {})
   vim.api.nvim_create_user_command("SemhlUnload", M.unload, {})
@@ -185,14 +198,14 @@ M.setup = function(opt)
   M._semhl_augup = vim.api.nvim_create_augroup(PLUGIN_NAME, { clear = true })
 
   vim.api.nvim_create_autocmd({ "FileType" },
-    { pattern = opt.filetypes, callback = _autoload, group = M._semhl_augup })
+    { pattern = opt.filetypes, callback = semhl_autoload, group = M._semhl_augup })
   M._init = true
 end
 
 M.load = function()
   LOGGER.debug("func: load");
   local buffer = vim.api.nvim_get_current_buf()
-  on_buffer_enter(buffer)
+  semhl_on_buffer_enter(buffer)
 end
 
 M.unload = function()

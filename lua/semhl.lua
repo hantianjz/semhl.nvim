@@ -67,7 +67,7 @@ local function semhl_highlight_node(buffer, node_text, srow, scol, erow, ecol, c
   local existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, M._ns, { srow, scol }, { erow, ecol }, {})
   for _, mark in pairs(existing_extmark) do
     local id = unpack(mark)
-    vim.api.nvim_buf_del_extmark(1, 2, id)
+    vim.api.nvim_buf_del_extmark(buffer, M._ns, id)
   end
 
   -- Only create new highlight if create_new is true

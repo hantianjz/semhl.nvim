@@ -14,7 +14,10 @@ With Lazy, currently setup function only accept list of file types to enable plu
 ```
 {
   'hantianjz/semhl.nvim',
-  opts    = { "c", "cpp", "h", "python", "lua", "typescript", "java" }
+  opts    = {
+    filetypes = { "c", "cpp", "h", "python", "lua", "typescript", "java" },
+    max_file_size = 100 * 1024
+  }
 }
 ```
 

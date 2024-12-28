@@ -3,12 +3,15 @@ local M = {}
 
 local PLUGIN_NAME = "semhl"
 local MAX_FILE_SIZE = 100 * 1024
+local HL_PRIORITY = 130
+local BYTE_CHANGE_DELAY_MS = 50
 
 M._HIGHLIGHT_CACHE = {}
 M._WORD_CACHE = {}
 M._LOG_LEVEL = "warn"
 M._DISABLE_CHECK_FUNC = nil
 M._MAX_FILE_SIZE = 0
+M._DEFERED_TIMER_TASKS = {}
 
 local LOGGER = require("plenary.log").new({
   plugin = PLUGIN_NAME,
@@ -59,16 +62,19 @@ local function semhl_create_highlight(ns, rgb_hex)
   return highlight_name
 end
 
-local function semhl_highlight_node(buffer, node_text, srow, scol, erow, ecol, create_new)
-  local hlname = M._WORD_CACHE[node_text]
-
-  LOGGER.debug("Processing: " .. node_text .. " at " .. srow)
-
+local function semhl_del_extmarks_in_range(buffer, range)
+  local srow, scol, erow, ecol = unpack(range)
   local existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, M._ns, { srow, scol }, { erow, ecol }, {})
   for _, mark in pairs(existing_extmark) do
     local id = unpack(mark)
     vim.api.nvim_buf_del_extmark(buffer, M._ns, id)
   end
+end
+
+local function semhl_highlight_node(buffer, node_text, range, create_new)
+  local hlname = M._WORD_CACHE[node_text]
+
+  semhl_del_extmarks_in_range(buffer, range)
 
   -- Only create new highlight if create_new is true
   if hlname == nil and create_new then
@@ -80,6 +86,7 @@ local function semhl_highlight_node(buffer, node_text, srow, scol, erow, ecol, c
   end
 
   if hlname then
+    local srow, scol, erow, ecol = unpack(range)
     local ext_id = vim.api.nvim_buf_set_extmark(buffer, M._ns, srow, scol,
       {
         end_row = erow,
@@ -89,6 +96,7 @@ local function semhl_highlight_node(buffer, node_text, srow, scol, erow, ecol, c
         right_gravity = true,
         invalidate = true,
         undo_restore = false,
+        priority = HL_PRIORITY,
       })
 
     LOGGER.debug("ADDED: " .. ext_id .. " : " ..
@@ -98,35 +106,35 @@ local function semhl_highlight_node(buffer, node_text, srow, scol, erow, ecol, c
   end
 end
 
+local function semhl_is_pos_overlap_range(row, col, range)
+  local srow, scol, erow, ecol = unpack(range)
+  return (srow < row and row < erow) or (srow == row and scol <= col) or (erow == row and col <= ecol)
+end
+
 local function semhl_is_node_overlap_range(node, range)
-  if range and next(range) then
+  if range == nil or next(range) == nil then
     return true
   end
 
   local row1, col1, row2, col2 = node:range()
-  if (row1 > range[1] and row1 < range[3]) or (row2 > range[1] and row2 < range[3]) then
-    return true
-  elseif (col1 >= range[2] and col1 <= range[4]) or (col2 >= range[2] and col2 <= range[4]) then
-    return true
-  end
-  return false
+  return semhl_is_pos_overlap_range(row1, col1, range) or semhl_is_pos_overlap_range(row2, col2, range)
 end
 
 local function semhl_process_range(parser, tree, buffer, create_new, range)
   local query = vim.treesitter.query.parse(parser:lang(), "(identifier) @id")
-  LOGGER.debug(range)
   local erow = nil
   range = range or {}
   if range[3] then
     erow = range[3] + 1
   end
+  if range and next(range) then
+    semhl_del_extmarks_in_range(buffer, range)
+  end
   for _, node in query:iter_captures(tree:root(), buffer, range[1], erow) do
     local node_text = vim.treesitter.get_node_text(node, buffer)
-    LOGGER.debug("Found: " .. node_text)
-
-    if create_new or semhl_is_node_overlap_range(node, range) then
-      local row1, col1, row2, col2 = node:range()
-      semhl_highlight_node(buffer, node_text, row1, col1, row2, col2, create_new)
+    local overlap = semhl_is_node_overlap_range(node, range)
+    if create_new or overlap then
+      semhl_highlight_node(buffer, node_text, { node:range() }, create_new)
     end
   end
 end
@@ -141,22 +149,45 @@ local function semhl_on_buffer_enter(buffer)
   vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
   local parser = vim.treesitter.get_parser(buffer, nil)
 
-  local function semhl_on_bytes(bufno, _, srow, scol, _, _, _, _, nerow, necol, _)
+  local function semhl_on_bytes(bufno, tick, srow, scol, _, _, _, _, nerow, necol, _)
     local function semhl_do_incremental_process()
+      LOGGER.debug("SEMHL_ON_BYTES:" .. string.format("(%d) - %d:%d-%d:%d", tick, srow, scol, srow + nerow, necol))
       local tree = parser:parse()[1]
       local start_ts = vim.uv.clock_gettime("realtime")
-
       semhl_process_range(parser, tree, bufno, false, { srow, scol, srow + nerow, necol })
-
       local end_ts = vim.uv.clock_gettime("realtime")
-      LOGGER.debug("Diff run took " .. semhl_ts_diff(start_ts, end_ts) .. " sec")
+      LOGGER.debug("SEMHL_ON_BYTES run took " .. semhl_ts_diff(start_ts, end_ts) .. " sec")
+      M._DEFERED_TIMER_TASKS[tick] = nil
+      LOGGER.debug(vim.inspect(M._DEFERED_TIMER_TASKS))
     end
 
-    vim.defer_fn(semhl_do_incremental_process, 10)
+    local defer_time = vim.defer_fn(semhl_do_incremental_process, BYTE_CHANGE_DELAY_MS)
+    M._DEFERED_TIMER_TASKS[tick] = defer_time
+  end
+
+  local function semhl_on_tree_change(ranges, tree)
+    local start_ts = vim.uv.clock_gettime("realtime")
+    if ranges and next(ranges) then
+      for tick, timer in pairs(M._DEFERED_TIMER_TASKS) do
+        vim.uv.timer_stop(timer)
+        M._DEFERED_TIMER_TASKS[tick] = nil
+      end
+
+      for _, range in pairs(ranges) do
+        local srow, scol, _, erow, ecol, _ = unpack(range)
+        LOGGER.debug("SEMHL_ON_TREE_CHANGE" .. string.format("-- %d:%d-%d:%d", srow, scol, erow, ecol))
+        semhl_process_range(parser, tree, buffer, false, { srow, scol, erow, ecol })
+      end
+      local end_ts = vim.uv.clock_gettime("realtime")
+      LOGGER.debug("SEMHL_ON_TREE_CHANGE run took " .. semhl_ts_diff(start_ts, end_ts) .. " sec")
+    end
   end
 
   local tree = parser:parse()[1]
-  parser:register_cbs({ on_bytes = semhl_on_bytes }, true)
+  parser:register_cbs({
+    on_bytes = semhl_on_bytes,
+    on_changedtree = semhl_on_tree_change,
+  }, true)
   semhl_process_range(parser, tree, buffer, true)
   vim.api.nvim_set_hl_ns(M._ns)
 end

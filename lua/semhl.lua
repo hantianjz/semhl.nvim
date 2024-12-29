@@ -139,6 +139,10 @@ local function semhl_process_range(parser, tree, buffer, create_new, range)
   end
 end
 
+local function semhl_unload(buffer)
+  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
+end
+
 local function semhl_on_buffer_enter(buffer)
   -- If disable function check returns true, bail out and do nothing for this file
   if M._DISABLE_CHECK_FUNC(buffer) then
@@ -187,6 +191,7 @@ local function semhl_on_buffer_enter(buffer)
   parser:register_cbs({
     on_bytes = semhl_on_bytes,
     on_changedtree = semhl_on_tree_change,
+    on_detach = function() semhl_unload(buffer) end,
   }, true)
   semhl_process_range(parser, tree, buffer, true)
   vim.api.nvim_set_hl_ns(M._ns)
@@ -242,7 +247,7 @@ end
 M.unload = function()
   LOGGER.debug("func: unload");
   local buffer = vim.api.nvim_get_current_buf()
-  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
+  semhl_unload(buffer)
 end
 
 return M

@@ -154,6 +154,11 @@ local function semhl_on_buffer_enter(buffer)
   local parser = vim.treesitter.get_parser(buffer, nil)
 
   local function semhl_on_bytes(bufno, tick, srow, scol, _, _, _, _, nerow, necol, _)
+    if not vim.api.nvim_buf_is_loaded(buffer) then
+      LOGGER.debug("SEMHL_ON_BYTES: callback on unloaded buffer: " .. buffer)
+      return
+    end
+
     local function semhl_do_incremental_process()
       LOGGER.debug("SEMHL_ON_BYTES:" .. string.format("(%d) - %d:%d-%d:%d", tick, srow, scol, srow + nerow, necol))
       local tree = parser:parse()[1]
@@ -170,6 +175,11 @@ local function semhl_on_buffer_enter(buffer)
   end
 
   local function semhl_on_tree_change(ranges, tree)
+    if not vim.api.nvim_buf_is_loaded(buffer) then
+      LOGGER.debug("SEMHL_ON_TREE_CHANGE: callback on unloaded buffer: " .. buffer)
+      return
+    end
+
     local start_ts = vim.uv.clock_gettime("realtime")
     if ranges and next(ranges) then
       for tick, timer in pairs(M._DEFERED_TIMER_TASKS) do
@@ -187,13 +197,15 @@ local function semhl_on_buffer_enter(buffer)
     end
   end
 
-  local tree = parser:parse()[1]
   parser:register_cbs({
     on_bytes = semhl_on_bytes,
     on_changedtree = semhl_on_tree_change,
-    on_detach = function() semhl_unload(buffer) end,
+    on_detach = function(bufno)
+      semhl_unload(bufno)
+    end,
   }, true)
-  semhl_process_range(parser, tree, buffer, true)
+
+  semhl_process_range(parser, parser:parse()[1], buffer, true)
   vim.api.nvim_set_hl_ns(M._ns)
 end
 

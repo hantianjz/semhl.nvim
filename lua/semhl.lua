@@ -246,8 +246,10 @@ M.setup = function(opt)
   M._ns = vim.api.nvim_create_namespace(PLUGIN_NAME)
   M._semhl_augup = vim.api.nvim_create_augroup(PLUGIN_NAME, { clear = true })
 
-  vim.api.nvim_create_autocmd({ "FileType" },
-    { pattern = opt.filetypes, callback = semhl_autoload, group = M._semhl_augup })
+  if opt.filetypes and next(opt.filetypes) then
+    vim.api.nvim_create_autocmd({ "FileType" },
+      { pattern = opt.filetypes, callback = semhl_autoload, group = M._semhl_augup })
+  end
   M._init = true
 end
 

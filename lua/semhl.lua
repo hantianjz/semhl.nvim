@@ -11,7 +11,7 @@ M._WORD_CACHE = {}
 M._LOG_LEVEL = "warn"
 M._DISABLE_CHECK_FUNC = nil
 M._MAX_FILE_SIZE = 0
-M._DEFERED_TIMER_TASKS = {}
+M._DEFERRED_TIMER_TASKS = {}
 
 local LOGGER = require("plenary.log").new({
   plugin = PLUGIN_NAME,
@@ -67,6 +67,7 @@ local function semhl_del_extmarks_in_range(buffer, range)
   local existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, M._ns, { srow, scol }, { erow, ecol }, {})
   for _, mark in pairs(existing_extmark) do
     local id = unpack(mark)
+    ---@diagnostic disable-next-line: param-type-mismatch
     vim.api.nvim_buf_del_extmark(buffer, M._ns, id)
   end
 end
@@ -166,12 +167,12 @@ local function semhl_on_buffer_enter(buffer)
       semhl_process_range(parser, tree, bufno, false, { srow, scol, srow + nerow, necol })
       local end_ts = vim.uv.clock_gettime("realtime")
       LOGGER.debug("SEMHL_ON_BYTES run took " .. semhl_ts_diff(start_ts, end_ts) .. " sec")
-      M._DEFERED_TIMER_TASKS[tick] = nil
-      LOGGER.debug(vim.inspect(M._DEFERED_TIMER_TASKS))
+      M._DEFERRED_TIMER_TASKS[tick] = nil
+      LOGGER.debug(vim.inspect(M._DEFERRED_TIMER_TASKS))
     end
 
     local defer_time = vim.defer_fn(semhl_do_incremental_process, BYTE_CHANGE_DELAY_MS)
-    M._DEFERED_TIMER_TASKS[tick] = defer_time
+    M._DEFERRED_TIMER_TASKS[tick] = defer_time
   end
 
   local function semhl_on_tree_change(ranges, tree)
@@ -182,9 +183,9 @@ local function semhl_on_buffer_enter(buffer)
 
     local start_ts = vim.uv.clock_gettime("realtime")
     if ranges and next(ranges) then
-      for tick, timer in pairs(M._DEFERED_TIMER_TASKS) do
+      for tick, timer in pairs(M._DEFERRED_TIMER_TASKS) do
         vim.uv.timer_stop(timer)
-        M._DEFERED_TIMER_TASKS[tick] = nil
+        M._DEFERRED_TIMER_TASKS[tick] = nil
       end
 
       for _, range in pairs(ranges) do

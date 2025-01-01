@@ -1,6 +1,6 @@
 # semhl.nvim
 
-This is a re-impementation of <a href="https://github.com/jaxbot/semantic-highlight.vim">semantic-highlight.vim</a> in lua targeting neovim, using tree-sitter instead of the hardcoded list.
+This is a re-implementation of <a href="https://github.com/jaxbot/semantic-highlight.vim">semantic-highlight.vim</a> in lua targeting neovim, using tree-sitter instead of the hardcoded list.
 And most important of all randomly generated colors with much bigger color space, never will symbols collide with the same colors.
 
 Every identifier is a different color, an idea popularized by <a href="https://medium.com/@evnbr/coding-in-color-3a6db2743a1e">Evan Brooks'</a> blog post.

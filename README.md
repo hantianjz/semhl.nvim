@@ -23,6 +23,7 @@ With Lazy, currently setup function only accept list of file types to enable plu
 
 # TODO
 - Support custom tree-sitter query
+- Clean up the way plugin is loaded and unloaded
 - Allow changing highlight priority
 - High color generation configurable
 - Generate colors based on background colors

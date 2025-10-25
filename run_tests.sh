@@ -46,9 +46,18 @@ PLENARY_DIR="/tmp/semhl-test/plenary.nvim"
 if [ ! -d "$PLENARY_DIR" ]; then
     echo "Installing plenary.nvim for testing..."
     mkdir -p "$(dirname "$PLENARY_DIR")"
-    git clone --depth=1 https://github.com/nvim-lua/plenary.nvim.git "$PLENARY_DIR" 2>&1 | grep -v "^Cloning"
-    echo "✓ plenary.nvim installed"
-    echo ""
+    GIT_CLONE_OUTPUT=$(mktemp)
+    if git clone --depth=1 https://github.com/nvim-lua/plenary.nvim.git "$PLENARY_DIR" >"$GIT_CLONE_OUTPUT" 2>&1; then
+        grep -v "^Cloning" "$GIT_CLONE_OUTPUT"
+        echo "✓ plenary.nvim installed"
+        echo ""
+    else
+        cat "$GIT_CLONE_OUTPUT"
+        echo "✗ Failed to install plenary.nvim"
+        rm -f "$GIT_CLONE_OUTPUT"
+        exit 1
+    fi
+    rm -f "$GIT_CLONE_OUTPUT"
 fi
 
 # Determine which tests to run

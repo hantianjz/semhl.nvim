@@ -392,7 +392,7 @@ semhl_process_range(parser, tree, buffer, create_new, range)
            └─▶ semhl_highlight_node()
                ├─▶ Generate color if needed
                │   └─▶ color_generator.color_generate()
-               │       └─▶ HSV to RGB conversion
+               │       └─▶ LAB color generation with Delta-E validation
                │
                ├─▶ Create highlight group
                │   └─▶ Cache in M._HIGHLIGHT_CACHE
@@ -414,10 +414,10 @@ lua/
 │   └── Caching mechanisms
 │
 └── color_generator.lua # Color generation
-    ├── HSV to RGB conversion
+    ├── LAB color space conversions
     ├── Background detection
-    ├── Adaptive color parameters
-    └── Color collision detection (TODO)
+    ├── Delta-E driven color parameters
+    └── Color collision detection helpers
 ```
 
 ### Cache Structures
@@ -440,7 +440,7 @@ M._DEFERRED_TIMER_TASKS = {} -- Maps tick to timer handle
 | `semhl_process_range()` | semhl.lua | 211-242 | Apply highlights to range |
 | `semhl_on_bytes()` | semhl.lua | 282-337 | Handle text changes |
 | `semhl_on_tree_change()` | semhl.lua | 339-361 | Handle parse tree changes |
-| `color_generate()` | color_generator.lua | 71-130 | Generate color from HSV |
+| `color_generate()` | color_generator.lua | 71-130 | Generate LAB color meeting Delta-E constraints |
 | `semhl_cleanup_buffer()` | semhl.lua | 244-263 | Clean up buffer resources |
 
 ## Debugging

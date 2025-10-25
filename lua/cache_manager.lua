@@ -51,6 +51,11 @@ function M.load_cache()
   return result
 end
 
+-- Escape special characters in strings for serialization
+local function escape_string(s)
+  return s:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+end
+
 -- Serialize a Lua table to a string
 local function serialize_table(tbl, indent)
   indent = indent or 0
@@ -72,14 +77,14 @@ local function serialize_table(tbl, indent)
 
     if type(k) == "string" then
       -- Escape quotes and special characters
-      local escaped = k:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+      local escaped = escape_string(k)
       key_str = string.format('  %s["%s"]', prefix, escaped)
     else
       key_str = string.format("  %s[%s]", prefix, tostring(k))
     end
 
     if type(v) == "string" then
-      local escaped = v:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+      local escaped = escape_string(v)
       table.insert(lines, string.format('%s = "%s",', key_str, escaped))
     elseif type(v) == "number" or type(v) == "boolean" then
       table.insert(lines, string.format("%s = %s,", key_str, tostring(v)))
@@ -91,6 +96,52 @@ local function serialize_table(tbl, indent)
 
   table.insert(lines, prefix .. "}")
   return table.concat(lines, "\n")
+end
+
+-- Move temporary file into place with cross-platform safety
+local function finalize_cache_file(temp_file, cache_file)
+  local ok, err = os.rename(temp_file, cache_file)
+  if ok then
+    return true
+  end
+
+  -- On Windows, os.rename fails if the destination exists. Try removing first.
+  local existing = vim.loop.fs_stat(cache_file)
+  if existing then
+    local removed, remove_err = os.remove(cache_file)
+    if not removed then
+      return false,
+        string.format("failed to rotate cache: %s (original rename error: %s)", tostring(remove_err), tostring(err))
+    end
+
+    ok, err = os.rename(temp_file, cache_file)
+    if ok then
+      return true
+    end
+  end
+
+  -- Fall back to copying the file contents
+  local temp_handle, temp_err = io.open(temp_file, "r")
+  if not temp_handle then
+    return false,
+      string.format("failed to reopen temp cache: %s (original rename error: %s)", tostring(temp_err), tostring(err))
+  end
+
+  local content = temp_handle:read("*a")
+  temp_handle:close()
+
+  local cache_handle, cache_err = io.open(cache_file, "w")
+  if not cache_handle then
+    return false,
+      string.format("failed to write cache using fallback: %s (original rename error: %s)", tostring(cache_err),
+        tostring(err))
+  end
+
+  cache_handle:write(content)
+  cache_handle:close()
+  os.remove(temp_file)
+
+  return true
 end
 
 -- Save cache to disk
@@ -115,10 +166,10 @@ function M.save_cache(cache)
   file:write(content)
   file:close()
 
-  -- Atomic rename
-  local ok, rename_err = os.rename(temp_file, cache_file)
+  -- Atomic rename with cross-platform fallback
+  local ok, finalize_err = finalize_cache_file(temp_file, cache_file)
   if not ok then
-    vim.notify("[semhl] Failed to save cache: " .. tostring(rename_err), vim.log.levels.WARN)
+    vim.notify("[semhl] Failed to save cache: " .. tostring(finalize_err), vim.log.levels.WARN)
     return false
   end
 

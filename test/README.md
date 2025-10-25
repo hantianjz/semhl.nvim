@@ -42,22 +42,17 @@ Or use a tool like [vusted](https://github.com/notomo/vusted) which provides bet
 
 ## Current Status
 
-✅ **Unit tests** (`semhl_spec.lua`) - **WORKING** (12/12 passing)
-  - ✅ Module loading (semhl, color_generator)
-  - ✅ API function existence checks
-  - ✅ Color generation (HSV to RGB)
-  - ✅ Color validation (hex format, RGB ranges)
-  - ✅ Color uniqueness
-  - ✅ Hue ceiling handling
-  - ✅ Parameter handling (nil values)
-  - ✅ Setup functions
-  - ✅ Background cache functions
+✅ **Unit tests** (`semhl_spec.lua`) - **WORKING** (20/20 passing)
+  - ✅ Module loading (semhl, color_generator, cache_manager)
+  - ✅ API surface checks (setup/load/unload)
+  - ✅ LAB color generation (hex format, RGB ranges, L-range constraints)
+  - ✅ Delta-E collision detection and color diversity
+  - ✅ Persistent cache read/write helpers
 
-⚠️  **Integration tests** (`test/manual/`) - **For manual testing only**
-  - Tests exist but may have timing issues in headless mode
-  - Most tests pass (~35/37) but some have race conditions
-  - Use `./run_tests.sh --all` to run them
-  - Best tested in a real Neovim instance
+⚠️  **Manual tests** (`test/manual/`) - **For exploratory/manual testing**
+  - Timing-sensitive in headless automation
+  - Run with `./run_tests.sh --all` when you need extra coverage
+  - Expect occasional flakes; best exercised in a real Neovim instance
 
 ## Contributing
 

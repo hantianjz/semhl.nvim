@@ -35,7 +35,7 @@ describe("color_generator", function()
 
   it("should generate valid hex colors", function()
     local color = color_gen.color_generate()
-    assert.matches("^#[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]$", color,
+    assert.matches("^#[0-9A-F]{6}$", color,
       "Color should be valid hex format")
   end)
 
@@ -43,9 +43,13 @@ describe("color_generator", function()
     local c1 = color_gen.color_generate()
     local c2 = color_gen.color_generate()
     -- Due to randomness, colors should be different (with high probability)
-    -- This might occasionally fail due to random chance
     assert.matches("^#[0-9A-F]+$", c1, "First color should be valid")
     assert.matches("^#[0-9A-F]+$", c2, "Second color should be valid")
+    if c1 == c2 then
+      -- Re-try once to reduce flakiness while still detecting regressions
+      c2 = color_gen.color_generate()
+    end
+    assert.are_not.equals(c1, c2, "Successive colors should usually differ")
   end)
 
   it("should have setup function", function()

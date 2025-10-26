@@ -1,0 +1,6 @@
+colormath
+networkx
+numpy
+pip
+tree-sitter
+tree-sitter-language-pack

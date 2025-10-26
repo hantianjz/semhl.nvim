@@ -22,6 +22,46 @@ describe("semhl", function()
     assert.is_function(semhl.load)
     assert.is_function(semhl.unload)
   end)
+
+  it("should accept custom queries per language", function()
+    -- Reload the module to reset state
+    package.loaded["semhl"] = nil
+    local semhl = require("semhl")
+
+    -- Setup with custom queries
+    semhl.setup({
+      queries = {
+        lua = "(function_declaration) @func",
+        python = "(function_definition) @func"
+      }
+    })
+
+    -- Verify queries were set
+    assert.equals("(function_declaration) @func", semhl._TS_QUERY["lua"])
+    assert.equals("(function_definition) @func", semhl._TS_QUERY["python"])
+  end)
+
+  it("should override default queries with custom ones", function()
+    -- Reload the module to reset state
+    package.loaded["semhl"] = nil
+    local semhl = require("semhl")
+
+    -- Default rust query exists
+    local default_rust_query = semhl._TS_QUERY["rust"]
+    assert.is_not_nil(default_rust_query)
+
+    -- Setup with custom rust query
+    local custom_rust_query = "(function_item) @func"
+    semhl.setup({
+      queries = {
+        rust = custom_rust_query
+      }
+    })
+
+    -- Verify rust query was overridden
+    assert.equals(custom_rust_query, semhl._TS_QUERY["rust"])
+    assert.are_not.equals(default_rust_query, semhl._TS_QUERY["rust"])
+  end)
 end)
 
 describe("color_generator", function()

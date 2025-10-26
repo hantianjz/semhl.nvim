@@ -13,7 +13,14 @@ M._DISABLE_CHECK_FUNC = nil
 M._MAX_FILE_SIZE = 0
 M._DEFERRED_TIMER_TASKS = {}
 M._BUFFER_PARSERS = {} -- Track parsers for cleanup
-M._QUERY_CACHE = {}    -- Cache parsed queries per language
+
+-- Cache parsed queries per language
+M._QUERY_CACHE = {}
+M._DEFAULT_QUERY = "(identifier) @id"
+M._TS_QUERY = {
+  ["rust"] = "((identifier) @sym) ((field_identifier) @sym)"
+}
+
 M._PENDING_RANGES = {} -- Batch multiple ranges for processing
 
 local LOGGER = require("plenary.log").new({
@@ -197,8 +204,10 @@ local function semhl_get_or_create_query(lang)
     return M._QUERY_CACHE[lang]
   end
 
+  local query_str = M._TS_QUERY[lang] or M._DEFAULT_QUERY
+
   -- Parse and cache the query
-  local ok, query = pcall(vim.treesitter.query.parse, lang, "(identifier) @id")
+  local ok, query = pcall(vim.treesitter.query.parse, lang, query_str)
   if ok then
     M._QUERY_CACHE[lang] = query
     LOGGER.debug("Cached query for language: " .. lang)
@@ -449,6 +458,14 @@ M.setup = function(opt)
 
   M._DISABLE_CHECK_FUNC = opt.disable or semhl_check_file_size
   M._MAX_FILE_SIZE = opt.max_file_size or MAX_FILE_SIZE
+
+  -- Override default queries with user-provided queries
+  if opt.queries then
+    for lang, query_str in pairs(opt.queries) do
+      M._TS_QUERY[lang] = query_str
+      LOGGER.debug("Override query for language: " .. lang)
+    end
+  end
 
   -- Setup color generator with Delta-E thresholds and L range
   local color_gen = require("color_generator")

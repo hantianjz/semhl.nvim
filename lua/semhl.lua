@@ -11,7 +11,7 @@ M._WORD_CACHE = {}
 M._LOG_LEVEL = "warn"
 M._DISABLE_CHECK_FUNC = nil
 M._MAX_FILE_SIZE = 0
-M._DEFERRED_TIMER_TASKS = {}
+M._DEFERRED_TIMER_TASKS = {} -- { [buffer] = timer_handle }
 M._BUFFER_PARSERS = {} -- Track parsers for cleanup
 
 -- Cache parsed queries per language
@@ -73,16 +73,30 @@ local function semhl_create_highlight(ns, rgb_hex)
 end
 
 local function semhl_del_extmarks_in_range(buffer, range)
+  if not vim.api.nvim_buf_is_valid(buffer) then
+    return
+  end
   local srow, scol, erow, ecol = unpack(range)
-  local existing_extmark = vim.api.nvim_buf_get_extmarks(buffer, M._ns, { srow, scol }, { erow, ecol }, {})
+  local ok, existing_extmark = pcall(vim.api.nvim_buf_get_extmarks, buffer, M._ns, { srow, scol }, { erow, ecol }, {})
+  if not ok then
+    LOGGER.debug("Failed to get extmarks: " .. tostring(existing_extmark))
+    return
+  end
   for _, mark in pairs(existing_extmark) do
     local id = unpack(mark)
     ---@diagnostic disable-next-line: param-type-mismatch
-    vim.api.nvim_buf_del_extmark(buffer, M._ns, id)
+    local del_ok, del_err = pcall(vim.api.nvim_buf_del_extmark, buffer, M._ns, id)
+    if not del_ok then
+      LOGGER.debug("Failed to delete extmark " .. id .. ": " .. tostring(del_err))
+    end
   end
 end
 
 local function semhl_highlight_node(buffer, node_text, range, create_new)
+  if not vim.api.nvim_buf_is_valid(buffer) then
+    return
+  end
+
   local hlname = M._WORD_CACHE[node_text]
 
   semhl_del_extmarks_in_range(buffer, range)
@@ -112,22 +126,25 @@ local function semhl_highlight_node(buffer, node_text, range, create_new)
 
   if hlname then
     local srow, scol, erow, ecol = unpack(range)
-    local ext_id = vim.api.nvim_buf_set_extmark(buffer, M._ns, srow, scol,
+    local ok, ext_id = pcall(vim.api.nvim_buf_set_extmark, buffer, M._ns, srow, scol,
       {
         end_row = erow,
         end_col = ecol,
         hl_group = hlname,
         end_right_gravity = true,
         right_gravity = true,
-        invalidate = true,
-        undo_restore = false,
+        invalidate = false,
+        undo_restore = true,
         priority = HL_PRIORITY,
       })
 
-    LOGGER.debug("ADDED: " .. ext_id .. " : " ..
-      buffer .. " - " .. node_text .. "[" .. srow .. "," .. scol .. "," .. ecol .. "] " .. hlname)
-
-    M._WORD_CACHE[node_text] = hlname
+    if ok then
+      LOGGER.debug("ADDED: " .. ext_id .. " : " ..
+        buffer .. " - " .. node_text .. "[" .. srow .. "," .. scol .. "," .. ecol .. "] " .. hlname)
+      M._WORD_CACHE[node_text] = hlname
+    else
+      LOGGER.debug("Failed to set extmark: " .. tostring(ext_id))
+    end
   end
 end
 
@@ -272,10 +289,10 @@ end
 local function semhl_cleanup_buffer(buffer)
   -- Clean up all resources for a buffer
 
-  -- Stop and clear any pending timers for this buffer
-  for tick, timer in pairs(M._DEFERRED_TIMER_TASKS) do
-    vim.loop.timer_stop(timer)
-    M._DEFERRED_TIMER_TASKS[tick] = nil
+  -- Stop and clear pending timer for THIS buffer only
+  if M._DEFERRED_TIMER_TASKS[buffer] then
+    vim.loop.timer_stop(M._DEFERRED_TIMER_TASKS[buffer])
+    M._DEFERRED_TIMER_TASKS[buffer] = nil
   end
 
   -- Clear the parser reference
@@ -285,7 +302,9 @@ local function semhl_cleanup_buffer(buffer)
   M._PENDING_RANGES[buffer] = nil
 
   -- Clear highlights
-  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
+  if vim.api.nvim_buf_is_valid(buffer) then
+    pcall(vim.api.nvim_buf_clear_namespace, buffer, M._ns, 0, -1)
+  end
 
   LOGGER.debug("Cleaned up buffer: " .. buffer)
 end
@@ -301,7 +320,7 @@ local function semhl_on_buffer_enter(buffer)
     return
   end
 
-  vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
+  pcall(vim.api.nvim_buf_clear_namespace, buffer, M._ns, 0, -1)
 
   -- Safely get parser with error handling
   local ok, parser = pcall(vim.treesitter.get_parser, buffer, nil)
@@ -321,19 +340,25 @@ local function semhl_on_buffer_enter(buffer)
     table.insert(M._PENDING_RANGES[bufno], { srow, scol, srow + nerow, necol })
 
     local function semhl_do_batched_process()
-      LOGGER.debug("SEMHL_ON_BYTES: Processing batched ranges for tick " .. tick)
+      LOGGER.debug("SEMHL_ON_BYTES: Processing batched ranges for buffer " .. bufno)
+
+      -- Clear timer reference for this buffer
+      M._DEFERRED_TIMER_TASKS[bufno] = nil
+
+      -- Check buffer is still valid
+      if not vim.api.nvim_buf_is_valid(bufno) then
+        return
+      end
 
       -- Get batched ranges
       local ranges = semhl_get_batched_ranges(bufno)
       if not ranges or #ranges == 0 then
-        M._DEFERRED_TIMER_TASKS[tick] = nil
         return
       end
 
       -- Safely parse with error handling
       local tree = semhl_safe_parse(parser, "in on_bytes")
       if not tree then
-        M._DEFERRED_TIMER_TASKS[tick] = nil
         return
       end
 
@@ -347,16 +372,15 @@ local function semhl_on_buffer_enter(buffer)
 
       local end_ts = vim.uv.clock_gettime("realtime")
       LOGGER.debug("SEMHL_ON_BYTES batch processing took " .. semhl_ts_diff(start_ts, end_ts) .. " sec")
-      M._DEFERRED_TIMER_TASKS[tick] = nil
     end
 
-    -- Cancel any existing timer for this tick
-    if M._DEFERRED_TIMER_TASKS[tick] then
-      vim.loop.timer_stop(M._DEFERRED_TIMER_TASKS[tick])
+    -- Cancel any existing timer for this buffer
+    if M._DEFERRED_TIMER_TASKS[bufno] then
+      vim.loop.timer_stop(M._DEFERRED_TIMER_TASKS[bufno])
     end
 
     local defer_time = vim.defer_fn(semhl_do_batched_process, BYTE_CHANGE_DELAY_MS)
-    M._DEFERRED_TIMER_TASKS[tick] = defer_time
+    M._DEFERRED_TIMER_TASKS[bufno] = defer_time
   end
 
   local function semhl_on_tree_change(ranges, tree)
@@ -367,10 +391,13 @@ local function semhl_on_buffer_enter(buffer)
 
     local start_ts = vim.uv.clock_gettime("realtime")
     if ranges and next(ranges) then
-      for tick, timer in pairs(M._DEFERRED_TIMER_TASKS) do
-        vim.loop.timer_stop(timer)
-        M._DEFERRED_TIMER_TASKS[tick] = nil
+      -- Stop pending timer for THIS buffer only (tree change supersedes pending byte changes)
+      if M._DEFERRED_TIMER_TASKS[buffer] then
+        vim.loop.timer_stop(M._DEFERRED_TIMER_TASKS[buffer])
+        M._DEFERRED_TIMER_TASKS[buffer] = nil
       end
+      -- Clear pending ranges for this buffer since tree change handles them
+      M._PENDING_RANGES[buffer] = {}
 
       for _, range in pairs(ranges) do
         local srow, scol, _, erow, ecol, _ = unpack(range)
@@ -394,13 +421,32 @@ local function semhl_on_buffer_enter(buffer)
     end,
   }, true)
 
+  -- Function to refresh all highlights in the buffer
+  local function semhl_refresh_buffer()
+    if not vim.api.nvim_buf_is_valid(buffer) or not M._BUFFER_PARSERS[buffer] then
+      return
+    end
+    LOGGER.debug("Refreshing highlights for buffer: " .. buffer)
+
+    -- Re-parse and process entire buffer
+    local fresh_tree = semhl_safe_parse(parser, "refresh for buffer " .. buffer)
+    if fresh_tree then
+      semhl_process_range(parser, fresh_tree, buffer, true)
+    end
+  end
+
+  -- Register autocmds for re-rendering on save and buffer leave
+  vim.api.nvim_create_autocmd({ "BufWritePost", "BufLeave" }, {
+    buffer = buffer,
+    callback = semhl_refresh_buffer,
+    group = M._semhl_augup,
+  })
+
   -- Safely parse and process initial content
   local tree = semhl_safe_parse(parser, "for buffer " .. buffer)
   if tree then
     semhl_process_range(parser, tree, buffer, true)
   end
-
-  vim.api.nvim_set_hl_ns(M._ns)
 end
 
 local function semhl_autoload(ev)
@@ -426,11 +472,16 @@ local function semhl_on_background_change()
   -- Clear word cache to regenerate colors
   M._WORD_CACHE = {}
 
-  -- Refresh all active buffers
+  -- Refresh all active buffers (copy keys to avoid iteration issues)
+  local buffers = {}
   for buffer, _ in pairs(M._BUFFER_PARSERS) do
+    table.insert(buffers, buffer)
+  end
+
+  for _, buffer in ipairs(buffers) do
     if vim.api.nvim_buf_is_valid(buffer) then
       -- Clear existing highlights
-      vim.api.nvim_buf_clear_namespace(buffer, M._ns, 0, -1)
+      pcall(vim.api.nvim_buf_clear_namespace, buffer, M._ns, 0, -1)
 
       -- Re-process the buffer with new colors
       local parser = M._BUFFER_PARSERS[buffer]
@@ -493,8 +544,10 @@ M.setup = function(opt)
 
   vim.api.nvim_create_user_command("SemhlLoad", M.load, {})
   vim.api.nvim_create_user_command("SemhlUnload", M.unload, {})
+  vim.api.nvim_create_user_command("SemhlToggle", M.toggle, {})
 
   M._ns = vim.api.nvim_create_namespace(PLUGIN_NAME)
+  vim.api.nvim_set_hl_ns(M._ns) -- Set namespace once during setup
   M._semhl_augup = vim.api.nvim_create_augroup(PLUGIN_NAME, { clear = true })
 
   -- Watch for background changes
@@ -521,6 +574,16 @@ M.unload = function()
   LOGGER.debug("func: unload");
   local buffer = vim.api.nvim_get_current_buf()
   semhl_unload(buffer)
+end
+
+M.toggle = function()
+  LOGGER.debug("func: toggle");
+  local buffer = vim.api.nvim_get_current_buf()
+  if M._BUFFER_PARSERS[buffer] then
+    semhl_unload(buffer)
+  else
+    semhl_on_buffer_enter(buffer)
+  end
 end
 
 return M

@@ -215,6 +215,24 @@ local function semhl_get_batched_ranges(buffer)
   return merged
 end
 
+-- Check if a node is inside a comment by walking up the tree
+local function semhl_is_inside_comment(node)
+  local parent = node:parent()
+  while parent do
+    local node_type = parent:type()
+    -- Check for common comment node types across languages
+    if node_type == "comment"
+        or node_type == "line_comment"
+        or node_type == "block_comment"
+        or node_type == "multiline_comment"
+        or node_type:match("^comment") then
+      return true
+    end
+    parent = parent:parent()
+  end
+  return false
+end
+
 local function semhl_get_or_create_query(lang)
   -- Check if we have a cached query for this language
   if M._QUERY_CACHE[lang] then
@@ -271,6 +289,10 @@ local function semhl_process_range(parser, tree, buffer, create_new, range)
   -- Safely iterate captures with error handling
   local ok_iter, iter_result = pcall(function()
     for _, node in query:iter_captures(tree:root(), buffer, range[1], erow) do
+      -- Skip identifiers inside comments
+      if semhl_is_inside_comment(node) then
+        goto continue
+      end
       local node_text = vim.treesitter.get_node_text(node, buffer)
       -- If processing a range (edit), always re-highlight since we deleted all extmarks in range
       -- If initial load (create_new), highlight everything
@@ -278,6 +300,7 @@ local function semhl_process_range(parser, tree, buffer, create_new, range)
       if should_highlight then
         semhl_highlight_node(buffer, node_text, { node:range() }, create_new)
       end
+      ::continue::
     end
   end)
 

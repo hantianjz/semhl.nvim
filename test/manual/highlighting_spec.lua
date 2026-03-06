@@ -5,6 +5,26 @@ describe("semhl highlighting", function()
   local test_buffer
   local ns
 
+  local function get_highlighted_words_in_range(bufnr, start_pos, end_pos)
+    local extmarks = vim.api.nvim_buf_get_extmarks(bufnr, ns, start_pos, end_pos, { details = true })
+    local words = {}
+    for _, mark in ipairs(extmarks) do
+      local details = mark[4]
+      if details and details.end_col then
+        local text = vim.api.nvim_buf_get_text(
+          bufnr,
+          mark[2],
+          mark[3],
+          details.end_row or mark[2],
+          details.end_col,
+          {}
+        )
+        words[table.concat(text)] = true
+      end
+    end
+    return words
+  end
+
   before_each(function()
     -- Reset the plugin state
     semhl._HIGHLIGHT_CACHE = {}
@@ -231,6 +251,68 @@ describe("semhl highlighting", function()
     vim.wait(100)
     local marks = vim.api.nvim_buf_get_extmarks(test_buffer, ns, 0, -1, {})
     assert.is_true(#marks > 0, "Should still have highlights after rapid changes")
+  end)
+
+  it("should remove and restore identifier highlights when commenting and uncommenting", function()
+    vim.api.nvim_buf_set_lines(test_buffer, 0, -1, false, {
+      "local value_name = 10",
+      "print(value_name)",
+    })
+
+    semhl.load()
+    vim.wait(200)
+
+    local before_words = get_highlighted_words_in_range(test_buffer, { 0, 0 }, { 0, -1 })
+    assert.is_true(before_words["value_name"] == true, "Identifier should be highlighted before commenting")
+
+    vim.api.nvim_buf_set_text(test_buffer, 0, 0, 0, 0, { "-- " })
+    vim.wait(200)
+
+    local commented_words = get_highlighted_words_in_range(test_buffer, { 0, 0 }, { 0, -1 })
+    assert.is_nil(commented_words["value_name"], "Identifier inside comment should not be highlighted")
+
+    vim.api.nvim_buf_set_text(test_buffer, 0, 0, 0, 3, { "" })
+    vim.wait(200)
+
+    local uncommented_words = get_highlighted_words_in_range(test_buffer, { 0, 0 }, { 0, -1 })
+    assert.is_true(uncommented_words["value_name"] == true, "Identifier should be highlighted after uncommenting")
+  end)
+
+  it("should remove stale extmarks after replacing an identifier", function()
+    vim.api.nvim_buf_set_lines(test_buffer, 0, -1, false, {
+      "local old_name = 1",
+      "print(old_name)",
+    })
+
+    semhl.load()
+    vim.wait(200)
+
+    vim.api.nvim_buf_set_text(test_buffer, 0, 6, 0, 14, { "new_label" })
+    vim.api.nvim_buf_set_text(test_buffer, 1, 6, 1, 14, { "new_label" })
+    vim.wait(200)
+
+    local words = get_highlighted_words_in_range(test_buffer, { 0, 0 }, { 1, -1 })
+    assert.is_nil(words["old_name"], "Old identifier highlights should be removed")
+    assert.is_true(words["new_label"] == true, "New identifier should be highlighted")
+  end)
+
+  it("should not register duplicate autocmds when loading multiple times", function()
+    vim.api.nvim_buf_set_lines(test_buffer, 0, -1, false, {
+      "local once = 1",
+      "print(once)",
+    })
+
+    semhl.load()
+    semhl.load()
+    semhl.load()
+
+    local autocmds = vim.api.nvim_get_autocmds({
+      group = semhl._semhl_augup,
+      buffer = test_buffer,
+      event = "BufWritePost",
+    })
+
+    assert.equals(1, #autocmds, "Buffer should have exactly one Semhl BufWritePost autocmd")
   end)
 
   it("should not highlight keywords as identifiers", function()

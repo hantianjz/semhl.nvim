@@ -81,7 +81,6 @@ local function semhl_del_extmarks_in_range(buffer, range)
   local srow, scol, erow, ecol = unpack(range)
   local ok, existing_extmark = pcall(vim.api.nvim_buf_get_extmarks, buffer, M._ns, { srow, scol }, { erow, ecol }, {
     overlap = true,
-    type = "highlight",
   })
   if not ok then
     LOGGER.debug("Failed to get extmarks: " .. tostring(existing_extmark))

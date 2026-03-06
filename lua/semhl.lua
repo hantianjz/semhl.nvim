@@ -11,6 +11,7 @@ M._WORD_CACHE = {}
 M._LOG_LEVEL = "warn"
 M._DISABLE_CHECK_FUNC = nil
 M._MAX_FILE_SIZE = 0
+M._USE_ON_BYTES = true
 M._DEFERRED_TIMER_TASKS = {} -- { [buffer] = timer_handle }
 M._BUFFER_PARSERS = {} -- Track parsers for cleanup
 
@@ -459,14 +460,19 @@ local function semhl_on_buffer_enter(buffer)
   -- Track parser for cleanup
   M._BUFFER_PARSERS[buffer] = parser
 
-  parser:register_cbs({
-    on_bytes = semhl_on_bytes,
+  local parser_callbacks = {
     on_changedtree = semhl_on_tree_change,
     on_detach = function(bufno)
       LOGGER.debug("Parser detached for buffer: " .. bufno)
       semhl_cleanup_buffer(bufno)
     end,
-  }, true)
+  }
+
+  if M._USE_ON_BYTES then
+    parser_callbacks.on_bytes = semhl_on_bytes
+  end
+
+  parser:register_cbs(parser_callbacks, true)
 
   -- Function to refresh all highlights in the buffer
   local function semhl_refresh_buffer()
@@ -560,6 +566,7 @@ M.setup = function(opt)
 
   M._DISABLE_CHECK_FUNC = opt.disable or semhl_check_file_size
   M._MAX_FILE_SIZE = opt.max_file_size or MAX_FILE_SIZE
+  M._USE_ON_BYTES = opt.use_on_bytes ~= false
 
   -- Override default queries with user-provided queries
   if opt.queries then

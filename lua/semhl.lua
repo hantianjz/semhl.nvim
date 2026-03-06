@@ -458,6 +458,9 @@ local function semhl_on_buffer_enter(buffer)
     end
     LOGGER.debug("Refreshing highlights for buffer: " .. buffer)
 
+    -- Full-buffer refresh must clear stale extmarks first.
+    pcall(vim.api.nvim_buf_clear_namespace, buffer, M._ns, 0, -1)
+
     -- Re-parse and process entire buffer
     local fresh_tree = semhl_safe_parse(parser, "refresh for buffer " .. buffer)
     if fresh_tree then
@@ -465,8 +468,9 @@ local function semhl_on_buffer_enter(buffer)
     end
   end
 
-  -- Register autocmds for re-rendering on save and buffer leave
-  vim.api.nvim_create_autocmd({ "BufWritePost", "BufLeave" }, {
+  -- Register autocmd for re-rendering on save.
+  -- Avoid BufLeave refresh to reduce unnecessary churn and racey updates.
+  vim.api.nvim_create_autocmd({ "BufWritePost" }, {
     buffer = buffer,
     callback = semhl_refresh_buffer,
     group = M._semhl_augup,

@@ -61,6 +61,10 @@ require('semhl').setup({
   -- File types to enable semantic highlighting for
   filetypes = { 'lua', 'python', 'javascript', 'typescript', 'go', 'rust' },
 
+  -- Optional: Disable byte-level callback path and rely on changedtree events only
+  -- Useful when troubleshooting update races in complex Neovim configurations
+  use_on_bytes = true,
+
   -- Maximum file size in bytes to process
   max_file_size = 100 * 1024,  -- default: 100KB
 

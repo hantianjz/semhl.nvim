@@ -144,6 +144,7 @@ end)
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `filetypes` | table | `{}` | File types to enable highlighting for |
+| `use_on_bytes` | boolean | `true` | Enable byte-level incremental callback path |
 | `min_delta_e` | number | `5` | Minimum perceptual color difference from background |
 | `target_delta_e` | number | `15` | Target Delta-E distance for color generation |
 | `L_min` | number | `nil` (auto) | Minimum lightness (0-100, auto-detected based on background) |

@@ -343,6 +343,13 @@ local function semhl_on_buffer_enter(buffer)
     return
   end
 
+  -- Avoid duplicate callback/autocmd registration when re-entering a buffer.
+  -- Multiple registrations can cause racey or inconsistent highlight updates.
+  if M._BUFFER_PARSERS[buffer] then
+    LOGGER.debug("Buffer already attached, skipping duplicate setup: " .. buffer)
+    return
+  end
+
   pcall(vim.api.nvim_buf_clear_namespace, buffer, M._ns, 0, -1)
 
   -- Safely get parser with error handling

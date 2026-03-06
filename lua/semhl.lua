@@ -52,7 +52,7 @@ local function semhl_ts_diff(start_ts, end_ts)
   return sec .. "." .. pad .. nsec
 end
 
-local function semhl_create_highlight(ns, rgb_hex)
+local function semhl_create_highlight(rgb_hex)
   rgb_hex = rgb_hex:lower()
   local cache_key = table.concat({ "sfg", rgb_hex }, "_")
   local highlight_name = M._HIGHLIGHT_CACHE[cache_key]
@@ -67,7 +67,9 @@ local function semhl_create_highlight(ns, rgb_hex)
 
   -- Create the highlight
   highlight_name = table.concat({ "sfg", rgb_hex }, "_")
-  vim.api.nvim_set_hl(ns, highlight_name, { fg = "#" .. rgb_hex })
+  -- Define groups in global namespace so they remain visible if other plugins
+  -- change active highlight namespaces/window-local hl state.
+  vim.api.nvim_set_hl(0, highlight_name, { fg = "#" .. rgb_hex })
   M._HIGHLIGHT_CACHE[cache_key] = highlight_name
   return highlight_name
 end
@@ -123,7 +125,7 @@ local function semhl_highlight_node(buffer, node_text, range, create_new)
 
     -- Create highlight if we got a color
     if c then
-      hlname = semhl_create_highlight(M._ns, string.sub(c, 2))
+      hlname = semhl_create_highlight(string.sub(c, 2))
     end
   end
 
@@ -584,7 +586,6 @@ M.setup = function(opt)
   vim.api.nvim_create_user_command("SemhlToggle", M.toggle, {})
 
   M._ns = vim.api.nvim_create_namespace(PLUGIN_NAME)
-  vim.api.nvim_set_hl_ns(M._ns) -- Set namespace once during setup
   M._semhl_augup = vim.api.nvim_create_augroup(PLUGIN_NAME, { clear = true })
 
   -- Watch for background changes

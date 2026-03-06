@@ -188,6 +188,13 @@ local function semhl_ranges_overlap_or_adjacent(range1, range2)
   return (srow1 <= erow2 + 1 and erow1 >= srow2 - 1)
 end
 
+local function semhl_relative_end_col(start_col, row_delta, rel_col)
+  if row_delta == 0 then
+    return start_col + rel_col
+  end
+  return rel_col
+end
+
 -- Batch and merge pending ranges for a buffer
 local function semhl_get_batched_ranges(buffer)
   local ranges = M._PENDING_RANGES[buffer]
@@ -364,15 +371,21 @@ local function semhl_on_buffer_enter(buffer)
     return
   end
 
-  local function semhl_on_bytes(bufno, tick, srow, scol, _, _, _, _, nerow, necol, _)
+  local function semhl_on_bytes(bufno, tick, srow, scol, _, oerow, oecol, _, nerow, necol, _)
     if not vim.api.nvim_buf_is_loaded(buffer) then
       LOGGER.debug("SEMHL_ON_BYTES: callback on unloaded buffer: " .. buffer)
       return
     end
 
+    -- Build dirty range as the union of old and new spans.
+    -- This prevents stale extmarks after delete/replace/move operations.
+    local old_range = { srow, scol, srow + oerow, semhl_relative_end_col(scol, oerow, oecol) }
+    local new_range = { srow, scol, srow + nerow, semhl_relative_end_col(scol, nerow, necol) }
+    local dirty_range = semhl_merge_ranges(old_range, new_range)
+
     -- Add range to pending list for batching
     M._PENDING_RANGES[bufno] = M._PENDING_RANGES[bufno] or {}
-    table.insert(M._PENDING_RANGES[bufno], { srow, scol, srow + nerow, necol })
+    table.insert(M._PENDING_RANGES[bufno], dirty_range)
 
     local function semhl_do_batched_process()
       LOGGER.debug("SEMHL_ON_BYTES: Processing batched ranges for buffer " .. bufno)

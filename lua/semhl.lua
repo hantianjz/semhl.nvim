@@ -370,6 +370,10 @@ local function semhl_on_buffer_enter(buffer)
     LOGGER.warn("Failed to get Tree-sitter parser for buffer " .. buffer .. ": " .. tostring(parser))
     return
   end
+  if not parser then
+    LOGGER.warn("No Tree-sitter parser available for buffer " .. buffer)
+    return
+  end
 
   local function semhl_on_bytes(bufno, tick, srow, scol, _, oerow, oecol, _, nerow, necol, _)
     if not vim.api.nvim_buf_is_loaded(buffer) then
